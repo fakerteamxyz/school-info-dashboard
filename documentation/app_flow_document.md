@@ -1,0 +1,31 @@
+# School Info Dashboard App Flow Document
+
+## Onboarding and Sign-In/Sign-Up
+
+When a user first navigates to the School Info Dashboard URL in their browser, they arrive at a publicly accessible landing page. This landing page immediately presents an overview of school information without requiring any sign-in or account creation, as the current version of the application does not implement user authentication. Visitors can scroll through highlights of attendance rates, upcoming events, announcements, and academic performance metrics right away. At any time, the user can open the chat panel directly from the landing page to begin a conversation. In future versions, a full sign-up and login system may be added, but today the user gains access instantly and anonymously.
+
+## Main Dashboard or Home Page
+
+Upon loading the main dashboard, the user sees a clean layout with a top header bar displaying the school’s logo on the left and a chat icon on the right. Below the header, a horizontal banner showcases the latest announcement image drawn from the public assets folder. The central area of the screen is divided into a grid of cards showing key metrics: attendance percentage, upcoming events date list, recent academic scores and an announcements feed. Clicking on any card expands it into a full-width view with more details. The sidebar on the left remains visible at all times, showing quick links to Dashboard, Events, Academic Metrics, Announcements, and Chat. Navigation through these sections happens instantly without a full page reload thanks to Next.js routing. The user can click the chat icon in the header or the Chat link in the sidebar to open the chat interface.
+
+## Detailed Feature Flows and Page Transitions
+
+When the user clicks on the Events link in the sidebar, the dashboard grid seamlessly transitions to a full-page Events view. This page loads the list of events from the API and displays each event as a row with date, title, and description. Clicking an event row triggers a client-side route change to an event details page that shows an expanded event description, location on a map, and an option to add the event to a personal calendar file. Navigating back to the main dashboard view is handled by a back button at the top, retaining the user’s scroll position.
+
+In the Academic Metrics section, the user sees interactive charts rendered on the client side. Hovering over chart points reveals precise values. The data for these charts is fetched from Next.js API routes on the server, then streamed to the browser. Moving between different subjects or time ranges is done through a dropdown control in the header of that page, and each selection triggers a new fetch request and smooth chart transition.
+
+When the user activates the chat interface, a slide-in panel appears on the right side of the screen. The user types a question or message into the input box at the bottom of the panel and presses Enter. That action sends a POST request to the `/api/chat` route handled by `src/app/api/chat/route.ts`. The server processes the message, perhaps using server-side logic or an AI model, then returns a response. The chat panel scrolls automatically to show the new message. If the user wants to view past messages, a “Load More” button at the top of the chat history triggers a GET request to the same chat API endpoint, appending earlier messages to the panel. Closing the chat panel returns the user to whichever dashboard section they were last viewing.
+
+## Settings and Account Management
+
+In the current release, there is no dedicated user account or settings page because the application does not require sign-in or personalized data. All dashboard views and the chat feature are available to any visitor. If a settings or account management module is introduced in the future, it will likely be accessible from the sidebar under a new Settings link. From there, users would be able to update personal details, configure chat preferences, and manage notification settings. After making changes in such a hypothetical settings page, the user would click a Save button, see a confirmation banner, and then be redirected back to the main dashboard.
+
+## Error States and Alternate Paths
+
+If the dashboard fails to load data due to network issues or server errors, the user sees a friendly error banner at the top of the page. The banner displays a short message explaining that data could not be retrieved and includes a Retry button that reattempts the fetch. In the Events and Academic Metrics pages, if the API returns an error or times out, the chart or list area shows a placeholder message and a Retry link rather than the normal content.
+
+Within the chat panel, if sending a message fails, the user’s message appears in red with a small retry icon next to it. Clicking that icon re-sends the request. If the user attempts to submit an empty message, the input box highlights in red and displays a prompt asking for text. For complete loss of connectivity, the chat input is disabled and an overlay message advises the user to check their internet connection. Once connectivity returns, the input box is reactivated automatically.
+
+## Conclusion and Overall App Journey
+
+A new user arrives at the public dashboard and immediately sees school metrics, events, and announcements without signing in. They navigate seamlessly between overview cards, detailed event pages, and interactive academic charts using the sidebar or header. The user can open and close the chat panel at any time to ask questions or view past conversations, with all messages handled by a unified API route. Errors are communicated clearly with retry options so the user can recover gracefully. The entire experience is optimized through Next.js’s App Router, giving instantaneous page transitions and server-side data fetching. From landing on the home page to engaging with chat or diving into detailed views, the user journey remains fluid and intuitive, encouraging frequent visits and real-time engagement with school information.
