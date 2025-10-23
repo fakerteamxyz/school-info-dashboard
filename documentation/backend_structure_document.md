@@ -1,159 +1,169 @@
 # Backend Structure Document for school-info-dashboard
 
+This document outlines the backend setup for the school-info-dashboard project. It covers the architecture, database, APIs, hosting, infrastructure, security, monitoring, and maintenance—all explained in everyday language.
+
 ## 1. Backend Architecture
 
-### Overview
-This backend is built on Next.js API Routes, keeping frontend and backend code in one place. We use containerization to ensure a consistent environment across development, testing, and production.
+**Overall Design**  
+- We use Next.js API Routes as our backend framework. This means our server-side logic lives right alongside our frontend code.  
+- Clerk handles user authentication and sessions.  
+- Supabase provides our PostgreSQL database and real-time features.  
+- Docker (.devcontainer) ensures everyone on the team runs the same environment.
 
-### Key Patterns and Frameworks
-- **Next.js App Router & API Routes:** File-based routing for pages and APIs, server components for fast initial loads, and client components for interactivity.
-- **Docker Containers:** Each environment (dev, test, prod) runs in a Docker container, so "it works on my machine" issues disappear.
-- **Modular Directory Structure:** Business logic (chat, school data) lives alongside API definitions, keeping related code easy to find.
+**Design Patterns & Frameworks**  
+- **API Routes (Next.js):** Organize each resource (announcements, classes, students, teachers, chat) into its own folder under `/src/app/api`.  
+- **Service Layer:** All database calls go through `src/lib/db.ts`.  
+- **Validation:** Input is checked with Zod schemas before reaching the database.
 
-### Scalability, Maintainability, Performance
-- **Scalability:** Containers can spin up multiple instances behind a load balancer to handle more traffic. Database is separated and can scale independently.
-- **Maintainability:** Clear separation of concerns—routing, business logic, and data access. Adding new routes or services is straightforward.
-- **Performance:** Server components render static bits on the server. We also introduce caching (see Infrastructure) to reduce database load.
+**Scalability, Maintainability, Performance**  
+- **Scalability:**  
+  - Next.js API Routes scale horizontally—more instances can spin up under load.  
+  - Supabase handles database scaling automatically.  
+- **Maintainability:**  
+  - Clear separation: Routes handle requests, `db.ts` handles data, Zod handles validation.  
+  - Reusable components and well-organized folders make it easy to find and change code.  
+- **Performance:**  
+  - Server Components for data fetching reduce bundle size.  
+  - Real-time subscriptions via Supabase keep dashboards up to date without extra fetches.
 
 ## 2. Database Management
 
-### Technology Stack
-- **Type:** Relational (SQL)
-- **System:** PostgreSQL
-- **ORM:** Prisma (for type-safe database access)
+**Database Technology**  
+- Type: SQL  
+- System: PostgreSQL hosted by Supabase
 
-### Data Handling Practices
-- **Migrations:** Prisma Migrate manages schema changes over time.
-- **Connection Pooling:** Pooled database connections to reduce overhead.
-- **Environment Variables:** Database credentials and URLs stored securely in `.env` files or secret managers.
-- **Backups:** Automated nightly backups of the production database.
+**Data Structure & Practices**  
+- Data is organized into tables for each entity: announcements, classes, students, teachers, and user roles.  
+- Migrations stored in the `supabase/` folder ensure schema changes are tracked and repeatable.  
+- Row Level Security (RLS) policies enforce who can read or write each row, based on user roles.  
+- Real-time subscriptions allow the frontend to listen for updates.
 
 ## 3. Database Schema
 
-Below is a human-readable summary of our main tables, followed by SQL definitions.
+**Human-Readable Overview**  
+- **announcements**: id, title, content, published_at, created_by  
+- **classes**: id, name, schedule, teacher_id  
+- **students**: id, first_name, last_name, email, class_id, enrolled_at  
+- **teachers**: id, first_name, last_name, email, hire_date  
+- **users**: id, email, role (admin, teacher, student)  
 
-### Tables and Relationships
-- **User**: Holds login and profile details.
-- **School**: Master list of schools with names, addresses, and logos.
-- **Event**: School events tied to a specific school.
-- **Announcement**: News items for a school.
-- **ChatMessage**: Messages exchanged in the chat, linked to a user and a school.
-
-### SQL Schema (PostgreSQL)
+**SQL Schema (PostgreSQL)**
 ```sql
--- User accounts
-drop table if exists "User";
-create table "User" (
-  id          serial primary key,
-  email       varchar(255) unique not null,
-  name        varchar(100) not null,
-  role        varchar(50) default 'student',
-  created_at  timestamp default now()
+-- Announcements table
+eCREATE TABLE announcements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  published_at TIMESTAMP WITH TIME ZONE,
+  created_by UUID REFERENCES users(id) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- School details
-drop table if exists "School";
-create table "School" (
-  id          serial primary key,
-  name        varchar(200) not null,
-  address     text,
-  logo_url    varchar(500),
-  created_at  timestamp default now()
+-- Classes table
+eCREATE TABLE classes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  schedule TEXT NOT NULL,
+  teacher_id UUID REFERENCES teachers(id) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Events for a school
-drop table if exists "Event";
-create table "Event" (
-  id          serial primary key,
-  school_id   int references "School"(id) on delete cascade,
-  title       varchar(200) not null,
-  date        date not null,
-  description text,
-  created_at  timestamp default now()
+-- Students table
+eCREATE TABLE students (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  class_id UUID REFERENCES classes(id),
+  enrolled_at DATE NOT NULL
 );
 
--- Announcements for a school
-drop table if exists "Announcement";
-create table "Announcement" (
-  id          serial primary key,
-  school_id   int references "School"(id) on delete cascade,
-  message     text not null,
-  published_at timestamp default now()
+-- Teachers table
+eCREATE TABLE teachers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  hire_date DATE NOT NULL
 );
 
--- Chat messages
- drop table if exists "ChatMessage";
- create table "ChatMessage" (
-   id          serial primary key,
-   user_id     int references "User"(id) on delete set null,
-   school_id   int references "School"(id) on delete cascade,
-   content     text not null,
-   sent_at     timestamp default now()
- );
-```  
+-- Users table (for authentication and roles)
+eCREATE TABLE users (
+  id UUID PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('admin', 'teacher', 'student'))
+);
+```
 
 ## 4. API Design and Endpoints
 
-### RESTful Approach
-We use REST endpoints under `/src/app/api` to keep things simple. Each file maps directly to a URL and HTTP method.
+**Approach**  
+- We use RESTful principles in Next.js API Routes.  
+- Each resource folder (`announcements`, `classes`, `students`, `teachers`, `chat`) contains a `route.ts` that handles GET, POST, PUT, DELETE as needed.
 
-### Key Endpoints
-- **GET /api/schools**  
-  Lists all schools.
-- **GET /api/schools/{id}**  
-  Retrieves details (events, announcements) for one school.
-- **GET /api/events?schoolId=X**  
-  Fetches upcoming events for a given school.
-- **GET /api/announcements?schoolId=X**  
-  Fetches announcements for a given school.
-- **POST /api/chat**  
-  Sends a new chat message; expects `{ userId, schoolId, content }` in the body.
-- **GET /api/chat?schoolId=X**  
-  Retrieves chat history for a school.
+**Key Endpoints**  
+- **GET /api/announcements**: List all announcements.  
+- **POST /api/announcements**: Create a new announcement.  
+- **PUT /api/announcements/:id**: Update an existing announcement.  
+- **DELETE /api/announcements/:id**: Remove an announcement.  
+- Similar CRUD routes exist under `/api/classes`, `/api/students`, `/api/teachers`.
+- **POST /api/chat**: Send a message to the AI chat service and get a response.
 
-Each route:
-- Validates input
-- Calls a service layer (e.g., `chatService.sendMessage`)
-- Returns JSON with appropriate status codes
+**Frontend-Backend Communication**  
+- Client components make fetch calls to these endpoints.  
+- Server components can call Supabase directly inside the same route.  
+- Zod schemas in `/src/lib/validations` ensure only valid data is accepted.
 
 ## 5. Hosting Solutions
 
-### Next.js on Vercel
-- **Automatic Deploys:** Push to `main` branch → Vercel builds and deploys.
-- **Global CDN:** Pages and static assets are served from edge nodes close to users.
-- **Serverless Functions:** API routes run in isolated serverless environments.
+**Backend Hosting**  
+- **Next.js App:** Deployed on Vercel for auto-scaling, zero-configuration deployments, and built-in CDN.  
+- **Database:** Supabase’s managed PostgreSQL instance with automated backups and scaling.
 
-### PostgreSQL on AWS RDS
-- **Managed Service:** Automated backups, patching, and scaling.
-- **Multi-AZ Deployment:** High availability in production.
-- **Monitoring & Alerts:** Built-in CloudWatch metrics.
+**Benefits**  
+- **Reliability:** Vercel and Supabase guarantee high uptime.  
+- **Scalability:** Both services auto-scale with traffic.  
+- **Cost-effective:** Pay for what you use; free tiers for small loads.
 
 ## 6. Infrastructure Components
 
-- **Load Balancer (Vercel Edge):** Distributes traffic among serverless function instances.
-- **CDN (Vercel Edge Network):** Caches static assets (CSS, JS, images) globally.
-- **Caching (Redis via AWS ElastiCache):** Optional layer for chat history or session data.
-- **Docker Compose (Local Dev):** Brings up the Next.js app, PostgreSQL, and Redis locally.
-
-These pieces work together to ensure fast responses, handle traffic spikes, and keep data close to users.
+- **Load Balancer:** Managed by Vercel to distribute traffic across instances.  
+- **CDN:** Vercel’s global CDN caches static assets and API responses at edge locations.  
+- **Caching:** HTTP caching headers on GET routes improve performance for repeat requests.  
+- **Dev Container:** Docker-based development setup ensures everyone runs the same environment.
 
 ## 7. Security Measures
 
-- **HTTPS Everywhere:** All API calls and pages use HTTPS.
-- **Authentication & Authorization:** JWT tokens issued on login and checked on protected routes.
-- **Input Validation & Sanitization:** Prevents SQL injection and XSS attacks.
-- **Environment Secrets:** DB credentials and JWT secret stored in environment variables or secret manager.
-- **Data Encryption:** TLS for in-transit data. RDS encrypts data at rest.
-- **Rate Limiting:** Basic throttling on chat endpoints to prevent abuse.
+- **Authentication:** Clerk handles sign-in, sign-up, and session management.  
+- **Authorization:** Middleware (`src/middleware.ts`) checks Clerk sessions before allowing access to protected routes.  
+- **Database Security:**  
+  - Row Level Security (RLS) in Supabase restricts data by user role.  
+  - All connections use SSL/TLS.  
+- **Data Encryption:** Environment variables for keys; HTTPS in transit; encryption at rest via Supabase.
+- **Input Validation:** Zod schemas reject invalid or malicious data at the API boundary.
+- **Environment Variables:** Stored securely, never checked into git. Use a `.env.example` to document required values.
 
 ## 8. Monitoring and Maintenance
 
-- **Logging:** Application logs sent to Vercel’s logs and to a central logging service (e.g., Datadog).
-- **Error Tracking:** Sentry captures exceptions in API routes.
-- **Metrics & Alerts:** CloudWatch dashboards for DB CPU, memory. Alerts for high latency or error rates.
-- **CI/CD Pipeline:** GitHub Actions runs tests, linting, and schema migrations before merging.
-- **Dependency Updates:** Dependabot checks for vulnerable packages weekly.
+- **Logging & Alerts:**  
+  - Supabase provides query logs and error logs.  
+  - Vercel’s dashboard shows deployment and runtime metrics.  
+- **Performance Monitoring:**  
+  - Vercel Analytics for response times and bandwidth.  
+  - Browser-based monitoring tools (e.g., Web Vitals) can be added later.  
+- **Health Checks:** Automated pings to critical endpoints to ensure uptime.  
+- **Maintenance Strategy:**  
+  - Regular dependency updates via Dependabot.  
+  - Scheduled reviews of database migrations and security policies.  
+  - Backups handled by Supabase—regular restore tests.
 
 ## 9. Conclusion and Overall Backend Summary
 
-This backend uses Next.js API Routes, PostgreSQL, and Docker to deliver a fast, scalable, and maintainable service for the school-info-dashboard. With a clear folder structure, managed hosting on Vercel and AWS RDS, plus essential security and monitoring in place, the system meets current needs and can grow to support real-time chat, more data streams, and higher traffic with minimal changes. The modular design and industry-standard tools differentiate this project, ensuring future developers can quickly understand and extend the backend.
+The backend for school-info-dashboard is built with modern, scalable tools that require minimal configuration and deliver high performance:
+
+- Next.js API Routes for a unified codebase  
+- Supabase for database and real-time features  
+- Clerk for secure authentication  
+- Vercel for hassle-free hosting and CDN
+
+This setup ensures administrators can reliably manage announcements, classes, students, and teachers. Real-time updates, strong security measures, and a clear development environment make it easy for teams to grow and maintain the project over time. Unique to this project is the potential AI chat integration, paving the way for intelligent assistant features in the future.
